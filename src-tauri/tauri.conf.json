@@ -1,0 +1,23 @@
+{
+  "productName": "OBS Overlay Exporter",
+  "version": "1.0.0",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "OBS Overlay Exporter",
+        "width": 900,
+        "height": 700,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "withGlobalTauri": true
+  },
+  "bundle": {
+    "active": false,
+    "identifier": "com.r4mdoom.obs-overlay-exporter"
+  }
+}

@@ -1,0 +1,29 @@
+node_modules/
+output/
+*.output/
+overlay-*/
+dist/
+
+# Rust / Tauri build output
+target/
+
+# Test outputs
+test-output/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+*.suo
+*.user
+
+# Logs
+*.log
+npm-debug.log*
+
+# Docs internos
+Eagora.txt
+alucard.txt
+CLAUDE.md
