@@ -153,7 +153,37 @@ pub fn parse_scene(json: &Value, scene_name: &str, only_visible: bool) -> Result
         .cloned()
         .unwrap_or_default();
 
-    let items = parse_items(&raw_items, &by_uuid, &by_name, &canvas, only_visible);
+    // OBS has a known bug: group children appear BOTH in the scene's flat items list
+    // AND inside the group source's settings.items. We must filter them from the flat
+    // list so they are only rendered once (as part of the group).
+    // Strategy: find every group in this scene's items → collect their children's
+    // source_uuids → exclude those from the top-level parse pass.
+    let mut group_child_uuids: HashSet<String> = HashSet::new();
+    for item in &raw_items {
+        let uuid = item["source_uuid"].as_str().unwrap_or("");
+        let name = item["name"].as_str().unwrap_or("");
+        let src  = by_uuid.get(uuid).or_else(|| by_name.get(name));
+        if let Some(src) = src {
+            if src["id"].as_str() == Some("group") {
+                if let Some(children) = src["settings"]["items"].as_array() {
+                    for child in children {
+                        if let Some(child_uuid) = child["source_uuid"].as_str() {
+                            group_child_uuids.insert(child_uuid.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let top_level_items: Vec<Value> = raw_items
+        .into_iter()
+        .filter(|item| {
+            let uuid = item["source_uuid"].as_str().unwrap_or("");
+            !group_child_uuids.contains(uuid)
+        })
+        .collect();
+
+    let items = parse_items(&top_level_items, &by_uuid, &by_name, &canvas, only_visible);
     let fonts = collect_fonts(&items);
 
     Ok(SceneData { name: scene_name.to_string(), canvas, items, fonts })

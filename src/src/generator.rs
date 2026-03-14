@@ -68,6 +68,61 @@ pub fn generate_html(
   <div class="canvas">
   {layers}
   </div>
+
+  <script>
+  // ── Auto-scale canvas to fit viewport (local preview only) ───────────────────
+  // When used as OBS browser source, the viewport is exactly {cw}x{ch}, so
+  // scale will be 1.0 and nothing changes. Smaller windows scale down to fit.
+  (function() {{
+    var CW={cw}, CH={ch};
+    function fit() {{
+      var s = Math.min(window.innerWidth/CW, window.innerHeight/CH);
+      if (s < 0.999) {{
+        document.documentElement.style.transformOrigin = 'top left';
+        document.documentElement.style.transform = 'scale(' + s + ')';
+        document.documentElement.style.width  = CW + 'px';
+        document.documentElement.style.height = CH + 'px';
+        document.body.style.overflow = 'hidden';
+      }} else {{
+        document.documentElement.style.transform = '';
+      }}
+    }}
+    fit();
+    window.addEventListener('resize', fit);
+  }})();
+
+  // ── OBS Overlay Diagnostic — open F12 → Console to see this report ──────────
+  window.addEventListener('load', function() {{
+    var CW = {cw}, CH = {ch};
+    console.log('%c=== OBS Overlay Diagnostic ===', 'font-weight:bold;font-size:14px;color:#0af');
+    console.log('Canvas: ' + CW + 'x' + CH);
+    console.log('Browser viewport: ' + window.innerWidth + 'x' + window.innerHeight);
+    if (window.innerWidth < CW || window.innerHeight < CH) {{
+      console.warn('⚠ Viewport smaller than canvas! Zoom out (Ctrl+-) until you see the full ' + CW + 'x' + CH + ' canvas.');
+    }}
+    var layers = document.querySelectorAll('.layer');
+    console.log('Total layers: ' + layers.length);
+    console.log('');
+    layers.forEach(function(el) {{
+      var r = el.getBoundingClientRect();
+      var style = el.getAttribute('style') || '';
+      var tag = el.tagName.toLowerCase();
+      var extra = '';
+      if (tag === 'img')    extra = ' | natural: ' + el.naturalWidth + 'x' + el.naturalHeight;
+      if (tag === 'video')  extra = ' | video: ' + el.videoWidth + 'x' + el.videoHeight;
+      if (tag === 'canvas') extra = ' | canvas attr: ' + el.width + 'x' + el.height;
+      var inCanvas = r.left < CW && r.top < CH && r.right > 0 && r.bottom > 0;
+      var vis = inCanvas ? '✓' : '⚠ OUT-OF-BOUNDS';
+      console.log(
+        '%c[' + tag + '] ' + el.id + ' ' + vis,
+        inCanvas ? 'color:#4f4' : 'color:#fa0',
+        '| rect: (' + Math.round(r.left) + ',' + Math.round(r.top) + ') ' + Math.round(r.width) + 'x' + Math.round(r.height) + extra
+      );
+    }});
+    console.log('');
+    console.log('%c=== End of Report ===', 'font-weight:bold;color:#0af');
+  }});
+  </script>
 </body>
 </html>"#,
         name       = scene.name,
@@ -88,13 +143,19 @@ fn render_item(
     match item {
         // ── Image ────────────────────────────────────────────────────────────
         SceneItem::Image { base, file } => {
-            let style   = build_transform_style(base);
-            let src     = resolve_asset(file, asset_map);
-            let filters = build_css_filters(&base.filters);
-            let extra   = if filters.is_empty() { String::new() } else { format!("; filter: {}", filters) };
+            let style      = build_transform_style(base);
+            let src        = resolve_asset(file, asset_map);
+            let css_filter = build_css_filters(&base.filters);
+            let filter_str = if css_filter.is_empty() { String::new() } else { format!("; filter: {}", css_filter) };
+            // Color/chroma key on image → screen blend removes dark background
+            let blend_str  = if get_chroma_key(&base.filters).is_some()
+                || base.filters.iter().any(|f| matches!(f.id.as_str(),
+                    "color_key_filter" | "color_key_filter_v2" |
+                    "chroma_key_filter" | "chroma_key_filter_v2"))
+            { "; mix-blend-mode: screen" } else { "" };
             Some(format!(
-                "<!-- {} (image) -->\n  <img id=\"{}\" class=\"layer\" src=\"{}\" alt=\"\" style=\"{}{}\">",
-                base.name, base.id, src, style, extra
+                "<!-- {} (image) -->\n  <img id=\"{}\" class=\"layer\" src=\"{}\" alt=\"\" style=\"{}{}{}\">",
+                base.name, base.id, src, style, filter_str, blend_str
             ))
         }
 
@@ -118,8 +179,7 @@ fn render_item(
             let mime       = if ext == "webm" { "video/webm" } else { "video/mp4" };
 
             // Chroma/color key → canvas-based pixel removal (works for any key color)
-            if let Some((kr, kg, kb, tol)) = get_chroma_key(&base.filters) {
-                let tol_sq = tol * tol;
+            if let Some((kr, kg, kb, tol_sq)) = get_chroma_key(&base.filters) {
                 let loop_js = if *looping { "true" } else { "false" };
                 return Some(format!(
                     concat!(
@@ -186,9 +246,11 @@ fn render_item(
         } => {
             let style = build_transform_style(base);
 
+            // Local Windows font first — if the HTML is opened on the same machine
+            // as OBS, the original font is used. Google Font is fallback for servers.
             let font_family = match get_web_font(font_face) {
                 Some(m) if m.google_font.is_some() =>
-                    format!("'{}', '{}', monospace", m.web, font_face),
+                    format!("'{}', '{}', monospace", font_face, m.web),
                 Some(m) => m.web.to_string(),
                 None    => format!("'{}', sans-serif", font_face),
             };
@@ -216,10 +278,13 @@ fn render_item(
                 "; white-space: pre-line".to_string()
             };
 
+            // padding only when background is visible; line-height 1 matches OBS
+            let padding = if *bk_opacity > 0.0 { "; padding: 2px 6px" } else { "" };
+
             let full_style = format!(
                 "{}; font-family: {}; font-size: {}px; font-weight: {}; font-style: {}; \
                  color: {}; background: {}; text-shadow: {}; text-align: {}; \
-                 line-height: 1.25; padding: 4px 8px{}",
+                 line-height: 1{}{}",
                 style,
                 font_family,
                 font_size,
@@ -230,6 +295,7 @@ fn render_item(
                 text_shadow,
                 text_align,
                 width_css,
+                padding,
             );
 
             let escaped = text

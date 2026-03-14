@@ -353,7 +353,14 @@ impl App {
 
                 send_log(format!("✓ {} itens encontrados", scene_data.items.len()));
 
-                // Create output dir
+                // Wipe output dir if it exists, then recreate fresh
+                if out.exists() {
+                    if let Err(e) = std::fs::remove_dir_all(&out) {
+                        send_log(format!("✗ Erro ao limpar pasta antiga: {}", e));
+                        let _ = tx.send(Msg::Done { output_dir: out });
+                        return;
+                    }
+                }
                 if let Err(e) = std::fs::create_dir_all(&out) {
                     send_log(format!("✗ Erro ao criar pasta: {}", e));
                     let _ = tx.send(Msg::Done { output_dir: out });

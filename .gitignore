@@ -1,29 +1,43 @@
+# ── Rust build output ─────────────────────────────────────────────────────────
+src/target/
+
+# ── Generated overlay exports (contain user's personal media files) ───────────
+# These are runtime outputs, not source code. Never commit.
+cenas/
+debug.log
+
+# ── Old releases/cenas path (wrong output dir from early versions) ────────────
+releases/cenas/
+
+# ── Old Node.js artifacts (project fully migrated to pure Rust) ──────────────
 node_modules/
+package.json
+package-lock.json
+dist/
+
+# ── Binary release executables (use GitHub Releases for distribution) ─────────
+# Binary blobs inflate git history. Tag a release on GitHub instead.
+releases/*.exe
+
+# ── Old output folders (Node.js era) ─────────────────────────────────────────
 output/
 *.output/
 overlay-*/
-dist/
-
-# Rust / Tauri build output
-target/
-
-# Test outputs
 test-output/
 
-# OS
+# ── Old Tauri frontend (replaced by native egui GUI) ─────────────────────────
+ui/
+
+# ── Internal session docs (Claude/AI context, not for public repo) ────────────
+alucard.txt
+Eagora.txt
+CLAUDE.md
+
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# Editor
+# ── Editor ───────────────────────────────────────────────────────────────────
 .vscode/settings.json
 *.suo
 *.user
-
-# Logs
-*.log
-npm-debug.log*
-
-# Docs internos
-Eagora.txt
-alucard.txt
-CLAUDE.md
