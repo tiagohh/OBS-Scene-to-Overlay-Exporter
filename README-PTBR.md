@@ -52,10 +52,9 @@ cargo build --release
 
 ## Limitações conhecidas
 
-- O chroma key em vídeos funciona via canvas JS — requer servir o HTML via HTTP (não `file://`) para fontes de vídeo cross-origin
-- Fontes do sistema Windows (ex: OCR A Extended) são substituídas por equivalentes do Google Fonts quando não disponíveis no servidor
+- O chroma key em vídeos funciona via canvas JS — requer servir o HTML via HTTP (não `file://`) para fontes de vídeo cross-origin; fundo verde é esperado ao abrir localmente via `file://`
+- Fontes do sistema Windows (ex: OCR A Extended) são usadas diretamente se disponíveis na máquina que abrir o HTML; equivalentes do Google Fonts são baixados como fallback para servidores remotos
 - Alguns efeitos complexos de filtros do OBS ainda não são suportados
-- Grupos são um quirk conhecido no formato JSON do OBS e podem ter comportamento inesperado em casos extremos
 
 ## Licença
 

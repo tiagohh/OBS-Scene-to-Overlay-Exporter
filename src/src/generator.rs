@@ -111,6 +111,7 @@ pub fn generate_html(
       if (tag === 'img')    extra = ' | natural: ' + el.naturalWidth + 'x' + el.naturalHeight;
       if (tag === 'video')  extra = ' | video: ' + el.videoWidth + 'x' + el.videoHeight;
       if (tag === 'canvas') extra = ' | canvas attr: ' + el.width + 'x' + el.height;
+      if (tag === 'div')    extra = ' | bg: ' + window.getComputedStyle(el).backgroundColor + ' | size: ' + Math.round(r.width) + 'x' + Math.round(r.height);
       var inCanvas = r.left < CW && r.top < CH && r.right > 0 && r.bottom > 0;
       var vis = inCanvas ? '✓' : '⚠ OUT-OF-BOUNDS';
       console.log(
@@ -190,23 +191,23 @@ fn render_item(
                         "    var c=document.getElementById('{id}'),ctx=c.getContext('2d');\n",
                         "    var v=document.createElement('video');\n",
                         "    v.src='{src}';v.loop={loop};v.muted=true;v.playsInline=true;\n",
-                        "    v.addEventListener('loadedmetadata',function(){{\n",
-                        "      c.width=v.videoWidth;c.height=v.videoHeight;c.style.display='';\n",
-                        "    }});\n",
-                        "    var kr={kr},kg={kg},kb={kb},tSq={tol_sq};\n",
+                        "    var kr={kr},kg={kg},kb={kb},tSq={tol_sq},started=false;\n",
                         "    function draw(){{\n",
                         "      if(c.width>0&&c.height>0){{\n",
+                        "        ctx.drawImage(v,0,0);\n",
                         "        try{{\n",
-                        "          ctx.drawImage(v,0,0);\n",
                         "          var d=ctx.getImageData(0,0,c.width,c.height),p=d.data;\n",
                         "          for(var i=0;i<p.length;i+=4){{var dr=p[i]-kr,dg=p[i+1]-kg,db=p[i+2]-kb;if(dr*dr+dg*dg+db*db<tSq)p[i+3]=0;}}\n",
                         "          ctx.putImageData(d,0,0);\n",
-                        "        }}catch(e){{ctx.clearRect(0,0,c.width,c.height);}}\n",
+                        "        }}catch(e){{}}\n",
                         "      }}\n",
                         "      requestAnimationFrame(draw);\n",
                         "    }}\n",
-                        "    v.addEventListener('play',function(){{requestAnimationFrame(draw);}});\n",
-                        "    v.play();\n",
+                        "    v.addEventListener('loadedmetadata',function(){{\n",
+                        "      c.width=v.videoWidth;c.height=v.videoHeight;c.style.display='';\n",
+                        "      if(!started){{started=true;requestAnimationFrame(draw);}}\n",
+                        "    }});\n",
+                        "    v.play().catch(function(){{}});\n",
                         "  }})();</script>",
                     ),
                     name    = base.name,
@@ -257,15 +258,23 @@ fn render_item(
 
             let text_color = obs_color_to_css(*color, *opacity);
 
+            // OBS default bk_color is opaque black (0xFF000000).
+            // If not present in JSON, fall back to black so opacity applies correctly.
+            let effective_bk = bk_color.or(Some(0xFF000000u32 as i64));
             let bg_css = if *bk_opacity > 0.0 {
-                obs_color_to_css(*bk_color, *bk_opacity)
+                obs_color_to_css(effective_bk, *bk_opacity)
             } else {
                 "transparent".to_string()
             };
 
             let mut shadows: Vec<String> = Vec::new();
             if *outline && *outline_size > 0 {
-                shadows.push(build_outline_shadow(*outline_size, *outline_color));
+                // OBS outline_size is in canvas-space pixels (post-scale).
+                // Divide by item scale so the CSS shadow produces the correct
+                // visual size after transform: scale() is applied.
+                let scale = base.scale.x.abs().max(0.01);
+                let css_outline_px = *outline_size as f64 / scale;
+                shadows.push(build_outline_shadow(css_outline_px, *outline_color));
             }
             if *drop_shadow {
                 shadows.push("3px 3px 6px rgba(0,0,0,0.85)".to_string());

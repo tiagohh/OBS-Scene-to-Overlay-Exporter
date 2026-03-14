@@ -52,10 +52,9 @@ cargo build --release
 
 ## Known limitations
 
-- Chroma key on videos works via canvas JS — requires serving over HTTP (not `file://`) for cross-origin video sources
-- Windows system fonts (e.g. OCR A Extended) are substituted with Google Fonts equivalents when not available on the host machine
+- Chroma key on videos works via canvas JS — requires serving over HTTP (not `file://`) for cross-origin video sources; a green background is expected when previewing locally via `file://`
+- Windows system fonts (e.g. OCR A Extended) are used directly if available on the machine opening the HTML; Google Fonts equivalents are downloaded as fallback for remote servers
 - Some complex OBS filter effects are not yet supported
-- Groups are a known quirk in OBS's JSON format and may behave unexpectedly in edge cases
 
 ## License
 

@@ -42,16 +42,21 @@ pub fn obs_color_to_css(color: Option<i64>, opacity_pct: f64) -> String {
 // ─── Outline shadow ───────────────────────────────────────────────────────────
 
 /// Build a CSS text-shadow string that simulates OBS text outline.
-pub fn build_outline_shadow(size: i64, color: Option<i64>) -> String {
-    let s = size.clamp(1, 8);
+/// `size_px` is already in CSS pixels (caller divides by item scale so the
+/// visual result on the canvas matches the OBS outline_size value).
+/// 12 evenly-spaced directions (30° step) produce a smooth circular halo.
+pub fn build_outline_shadow(size_px: f64, color: Option<i64>) -> String {
+    let s = size_px.clamp(0.5, 20.0);
     let color_css = obs_color_to_css(color, 100.0);
-    let offsets: &[(i64, i64)] = &[
-        (-s, 0), (s, 0), (0, -s), (0, s),
-        (-s, -s), (-s, s), (s, -s), (s, s),
-    ];
-    offsets
-        .iter()
-        .map(|(x, y)| format!("{}px {}px 0 {}", x, y, color_css))
+    // 12 directions at 30° intervals
+    let steps = 12usize;
+    (0..steps)
+        .map(|i| {
+            let angle = (i as f64) * std::f64::consts::TAU / (steps as f64);
+            let x = s * angle.cos();
+            let y = s * angle.sin();
+            format!("{:.2}px {:.2}px 0 {}", x, y, color_css)
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }
