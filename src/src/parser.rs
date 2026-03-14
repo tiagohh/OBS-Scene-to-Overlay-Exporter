@@ -29,12 +29,16 @@ pub struct Filter {
 pub struct BaseItem {
     pub id:          String,
     pub name:        String,
+    pub visible:     bool,
     pub pos:         Pos,
     pub scale:       Scale,
     pub rot:         f64,
     pub bounds_type: i64,
     pub bounds:      Bounds,
     pub filters:     Vec<Filter>,
+    /// OBS item-level alignment: bitmask — left=1, right=2, top=4, bottom=8.
+    /// 5 = top-left (default). Determines what point of the item pos.x/y refers to.
+    pub item_align:  i64,
 }
 
 #[derive(Debug, Clone)]
@@ -89,7 +93,7 @@ pub struct SceneData {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-pub fn parse_scene(json: &Value, scene_name: &str) -> Result<SceneData, String> {
+pub fn parse_scene(json: &Value, scene_name: &str, only_visible: bool) -> Result<SceneData, String> {
     let canvas = Canvas {
         x: json["resolution"]["x"].as_f64().unwrap_or(1920.0),
         y: json["resolution"]["y"].as_f64().unwrap_or(1080.0),
@@ -149,7 +153,7 @@ pub fn parse_scene(json: &Value, scene_name: &str) -> Result<SceneData, String> 
         .cloned()
         .unwrap_or_default();
 
-    let items = parse_items(&raw_items, &by_uuid, &by_name, &canvas);
+    let items = parse_items(&raw_items, &by_uuid, &by_name, &canvas, only_visible);
     let fonts = collect_fonts(&items);
 
     Ok(SceneData { name: scene_name.to_string(), canvas, items, fonts })
@@ -158,15 +162,18 @@ pub fn parse_scene(json: &Value, scene_name: &str) -> Result<SceneData, String> 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 fn parse_items(
-    raw:     &[Value],
-    by_uuid: &HashMap<String, Value>,
-    by_name: &HashMap<String, Value>,
-    canvas:  &Canvas,
+    raw:          &[Value],
+    by_uuid:      &HashMap<String, Value>,
+    by_name:      &HashMap<String, Value>,
+    canvas:       &Canvas,
+    only_visible: bool,
 ) -> Vec<SceneItem> {
     let mut result = Vec::new();
     for item in raw {
-        // Skip invisible items
-        if item["visible"].as_bool() == Some(false) {
+        // OBS saves visibility as bool false OR integer 0
+        let invisible = item["visible"].as_bool() == Some(false)
+            || item["visible"].as_i64() == Some(0);
+        if only_visible && invisible {
             continue;
         }
 
@@ -178,7 +185,7 @@ fn parse_items(
             .or_else(|| by_name.get(item_name));
 
         if let Some(source) = source {
-            if let Some(parsed) = parse_item(item, source, by_uuid, by_name, canvas) {
+            if let Some(parsed) = parse_item(item, source, by_uuid, by_name, canvas, only_visible) {
                 result.push(parsed);
             }
         }
@@ -187,15 +194,20 @@ fn parse_items(
 }
 
 fn parse_item(
-    item:    &Value,
-    source:  &Value,
-    by_uuid: &HashMap<String, Value>,
-    by_name: &HashMap<String, Value>,
-    canvas:  &Canvas,
+    item:         &Value,
+    source:       &Value,
+    by_uuid:      &HashMap<String, Value>,
+    by_name:      &HashMap<String, Value>,
+    canvas:       &Canvas,
+    only_visible: bool,
 ) -> Option<SceneItem> {
+    let is_visible = item["visible"].as_bool().unwrap_or(true)
+        && item["visible"].as_i64().unwrap_or(1) != 0;
+
     let base = BaseItem {
-        id:   format!("item-{}", item["id"].as_i64().unwrap_or(0)),
-        name: fix_mojibake(item["name"].as_str().unwrap_or("")),
+        id:      format!("item-{}", item["id"].as_i64().unwrap_or(0)),
+        name:    fix_mojibake(item["name"].as_str().unwrap_or("")),
+        visible: is_visible,
         pos:  Pos {
             x: item["pos"]["x"].as_f64().unwrap_or(0.0),
             y: item["pos"]["y"].as_f64().unwrap_or(0.0),
@@ -210,6 +222,7 @@ fn parse_item(
             x: item["bounds"]["x"].as_f64().unwrap_or(0.0),
             y: item["bounds"]["y"].as_f64().unwrap_or(0.0),
         },
+        item_align:  item["align"].as_i64().unwrap_or(5),
         filters: source["filters"]
             .as_array()
             .unwrap_or(&vec![])
@@ -289,14 +302,14 @@ fn parse_item(
 
         "group" => {
             let raw = s["items"].as_array().cloned().unwrap_or_default();
-            let items = parse_items(&raw, by_uuid, by_name, canvas);
+            let items = parse_items(&raw, by_uuid, by_name, canvas, only_visible);
             Some(SceneItem::Group { base, items })
         }
 
         "scene" => {
             // source is already the nested scene; just parse its items
             if let Some(arr) = source["settings"]["items"].as_array() {
-                let nested = parse_items(arr, by_uuid, by_name, canvas);
+                let nested = parse_items(arr, by_uuid, by_name, canvas, only_visible);
                 return Some(SceneItem::Group { base, items: nested });
             }
             None

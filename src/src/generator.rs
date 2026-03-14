@@ -110,24 +110,64 @@ fn render_item(
 
         // ── Video ─────────────────────────────────────────────────────────────
         SceneItem::Video { base, file, looping, .. } => {
-            let style     = build_transform_style(base);
-            let src       = resolve_asset(file, asset_map);
-            let loop_attr = if *looping { " loop" } else { "" };
-            let filters   = build_css_filters(&base.filters);
+            let style      = build_transform_style(base);
+            let src        = resolve_asset(file, asset_map);
+            let filters    = build_css_filters(&base.filters);
             let filter_str = if filters.is_empty() { String::new() } else { format!("; filter: {}", filters) };
+            let ext        = file.rsplit('.').next().unwrap_or("").to_lowercase();
+            let mime       = if ext == "webm" { "video/webm" } else { "video/mp4" };
 
-            let has_chroma = base.filters.iter().any(|f| {
-                matches!(
-                    f.id.as_str(),
-                    "chroma_key_filter" | "chroma_key_filter_v2" |
-                    "color_key_filter"  | "color_key_filter_v2"
-                )
+            // Chroma/color key → canvas-based pixel removal (works for any key color)
+            if let Some((kr, kg, kb, tol)) = get_chroma_key(&base.filters) {
+                let tol_sq = tol * tol;
+                let loop_js = if *looping { "true" } else { "false" };
+                return Some(format!(
+                    concat!(
+                        "<!-- {name} (video + chroma key) -->\n",
+                        // Canvas hidden until video metadata loads (avoids flash of green)
+                        "  <canvas id=\"{id}\" class=\"layer\" style=\"{style};display:none\"></canvas>\n",
+                        "  <script>(function(){{\n",
+                        "    var c=document.getElementById('{id}'),ctx=c.getContext('2d');\n",
+                        "    var v=document.createElement('video');\n",
+                        "    v.src='{src}';v.loop={loop};v.muted=true;v.playsInline=true;\n",
+                        "    v.addEventListener('loadedmetadata',function(){{\n",
+                        "      c.width=v.videoWidth;c.height=v.videoHeight;c.style.display='';\n",
+                        "    }});\n",
+                        "    var kr={kr},kg={kg},kb={kb},tSq={tol_sq};\n",
+                        "    function draw(){{\n",
+                        "      if(c.width>0&&c.height>0){{\n",
+                        "        try{{\n",
+                        "          ctx.drawImage(v,0,0);\n",
+                        "          var d=ctx.getImageData(0,0,c.width,c.height),p=d.data;\n",
+                        "          for(var i=0;i<p.length;i+=4){{var dr=p[i]-kr,dg=p[i+1]-kg,db=p[i+2]-kb;if(dr*dr+dg*dg+db*db<tSq)p[i+3]=0;}}\n",
+                        "          ctx.putImageData(d,0,0);\n",
+                        "        }}catch(e){{ctx.clearRect(0,0,c.width,c.height);}}\n",
+                        "      }}\n",
+                        "      requestAnimationFrame(draw);\n",
+                        "    }}\n",
+                        "    v.addEventListener('play',function(){{requestAnimationFrame(draw);}});\n",
+                        "    v.play();\n",
+                        "  }})();</script>",
+                    ),
+                    name    = base.name,
+                    id      = base.id,
+                    style   = style,
+                    src     = src,
+                    loop    = loop_js,
+                    kr      = kr,
+                    kg      = kg,
+                    kb      = kb,
+                    tol_sq  = tol_sq,
+                ));
+            }
+
+            // Normal video (no chroma key, or black key → screen blend)
+            let loop_attr  = if *looping { " loop" } else { "" };
+            let black_key  = base.filters.iter().any(|f| {
+                matches!(f.id.as_str(), "color_key_filter" | "color_key_filter_v2" |
+                                        "chroma_key_filter" | "chroma_key_filter_v2")
             });
-            let blend_str = if has_chroma { "; mix-blend-mode: screen" } else { "" };
-
-            let ext  = file.rsplit('.').next().unwrap_or("").to_lowercase();
-            let mime = if ext == "webm" { "video/webm" } else { "video/mp4" };
-
+            let blend_str  = if black_key { "; mix-blend-mode: screen" } else { "" };
             Some(format!(
                 "<!-- {} (video) -->\n  <video id=\"{}\" class=\"layer\" autoplay{} muted playsinline style=\"{}{}{}\">\n    <source src=\"{}\" type=\"{}\">\n  </video>",
                 base.name, base.id, loop_attr, style, filter_str, blend_str, src, mime
@@ -252,7 +292,21 @@ fn build_transform_style(base: &crate::parser::BaseItem) -> String {
         format!("top: {}px",  base.pos.y),
     ];
 
+    // OBS item_align bitmask: left=1, right=2, top=4, bottom=8.
+    // pos.x/y is the anchor point indicated by the alignment.
+    // We use CSS translate to shift the element so that anchor point lands on pos.x/y.
+    let h_align = base.item_align & 0b0011; // bits 0-1: 0=center, 1=left, 2=right
+    let v_align = base.item_align & 0b1100; // bits 2-3: 0=center, 4=top, 8=bottom
+    let tx = match h_align { 1 => "0%", 2 => "-100%", _ => "-50%" }; // left / right / center
+    let ty = match v_align { 4 => "0%", 8 => "-100%", _ => "-50%" }; // top  / bottom / center
+
     let mut transforms = Vec::new();
+
+    // Anchor offset first (before scale/rotate so it's in the item's local space)
+    if tx != "0%" || ty != "0%" {
+        transforms.push(format!("translate({}, {})", tx, ty));
+    }
+
     let sx = base.scale.x;
     let sy = base.scale.y;
     if (sx - sy).abs() < 0.0001 {
@@ -282,6 +336,45 @@ fn resolve_asset(file: &str, asset_map: &HashMap<String, Option<String>>) -> Str
     }
     // Fallback: original path with forward slashes (useful for local testing)
     file.replace('\\', "/")
+}
+
+/// Returns (R, G, B, tolerance²) for the key color if a chroma/color key filter is present.
+/// OBS similarity 1-1000 → we map to Euclidean tolerance ≈ similarity/2,
+/// then store tolerance² to avoid sqrt in the JS hot loop.
+fn get_chroma_key(filters: &[Filter]) -> Option<(u32, u32, u32, u32)> {
+    for f in filters {
+        let s = &f.settings;
+        let sim = s["similarity"].as_f64().unwrap_or(80.0).clamp(1.0, 1000.0);
+        let tol = (sim / 2.0) as u32;
+
+        match f.id.as_str() {
+            "chroma_key_filter" | "chroma_key_filter_v2" => {
+                let (r, g, b) = match s["key_color_type"].as_str().unwrap_or("green") {
+                    "blue"    => (0u32, 0u32, 255u32),
+                    "magenta" => (255u32, 0u32, 255u32),
+                    "custom"  => {
+                        let c = s["custom_color"].as_i64().unwrap_or(0) as u32;
+                        (c & 0xFF, (c >> 8) & 0xFF, (c >> 16) & 0xFF)
+                    }
+                    _ => (0u32, 255u32, 0u32), // green
+                };
+                return Some((r, g, b, tol * tol));
+            }
+            "color_key_filter" | "color_key_filter_v2" => {
+                let c = s["color"].as_i64().unwrap_or(0) as u32;
+                let r = c & 0xFF;
+                let g = (c >> 8) & 0xFF;
+                let b = (c >> 16) & 0xFF;
+                // Black key → mix-blend-mode: screen is good enough; skip canvas
+                if r < 10 && g < 10 && b < 10 {
+                    return None;
+                }
+                return Some((r, g, b, tol * tol));
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn build_css_filters(filters: &[Filter]) -> String {
