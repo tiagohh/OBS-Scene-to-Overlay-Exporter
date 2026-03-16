@@ -61,6 +61,44 @@ pub fn build_outline_shadow(size_px: f64, color: Option<i64>) -> String {
         .join(", ")
 }
 
+// ─── Chroma key ───────────────────────────────────────────────────────────────
+
+/// Returns `(R, G, B, obs_similarity)` for the first chroma/color-key filter found.
+/// `obs_similarity` is on the OBS scale (1–1000).
+/// Returns None for black color keys (handled via mix-blend-mode: screen).
+pub fn get_chroma_key(filters: &[crate::parser::Filter]) -> Option<(u8, u8, u8, f64)> {
+    for f in filters {
+        let s   = &f.settings;
+        let sim = s["similarity"].as_f64().unwrap_or(80.0).clamp(1.0, 1000.0);
+        match f.id.as_str() {
+            "chroma_key_filter" | "chroma_key_filter_v2" => {
+                let (r, g, b) = match s["key_color_type"].as_str().unwrap_or("green") {
+                    "blue"    => (0u8, 0u8, 255u8),
+                    "magenta" => (255u8, 0u8, 255u8),
+                    "custom"  => {
+                        let c = s["custom_color"].as_i64().unwrap_or(0) as u32;
+                        ((c & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, ((c >> 16) & 0xFF) as u8)
+                    }
+                    _ => (0u8, 255u8, 0u8), // green
+                };
+                return Some((r, g, b, sim));
+            }
+            "color_key_filter" | "color_key_filter_v2" => {
+                let c = s["color"].as_i64().unwrap_or(0) as u32;
+                let r = (c & 0xFF) as u8;
+                let g = ((c >> 8) & 0xFF) as u8;
+                let b = ((c >> 16) & 0xFF) as u8;
+                if r < 10 && g < 10 && b < 10 {
+                    return None; // Black key → mix-blend-mode: screen
+                }
+                return Some((r, g, b, sim));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 // ─── Font map ─────────────────────────────────────────────────────────────────
 
 pub struct FontMapping {

@@ -15,9 +15,9 @@ package.json
 package-lock.json
 dist/
 
-# ── Binary release executables (use GitHub Releases for distribution) ─────────
+# ── Release folder (binary executables — use GitHub Releases for distribution) ─
 # Binary blobs inflate git history. Tag a release on GitHub instead.
-releases/*.exe
+releases/
 
 # ── Old output folders (Node.js era) ─────────────────────────────────────────
 output/

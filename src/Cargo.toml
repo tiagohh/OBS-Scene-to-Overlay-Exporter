@@ -1,6 +1,6 @@
 [package]
 name = "obs-overlay-exporter"
-version = "0.7.0"
+version = "0.9.6"
 edition = "2021"
 
 [dependencies]

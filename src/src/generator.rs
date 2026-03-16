@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use crate::parser::{Canvas, Filter, SceneData, SceneItem};
-use crate::utils::{build_outline_shadow, get_web_font, obs_color_to_css};
+use crate::utils::{build_outline_shadow, get_chroma_key, get_web_font, obs_color_to_css};
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -176,59 +176,104 @@ fn render_item(
             let src        = resolve_asset(file, asset_map);
             let filters    = build_css_filters(&base.filters);
             let filter_str = if filters.is_empty() { String::new() } else { format!("; filter: {}", filters) };
-            let ext        = file.rsplit('.').next().unwrap_or("").to_lowercase();
-            let mime       = if ext == "webm" { "video/webm" } else { "video/mp4" };
+            let loop_attr  = if *looping { " loop" } else { "" };
 
-            // Chroma/color key → canvas-based pixel removal (works for any key color)
-            if let Some((kr, kg, kb, tol_sq)) = get_chroma_key(&base.filters) {
+            // Chroma/color key → canvas-based JS pixel removal.
+            // VP9 WebM alpha (from ffmpeg conversion) is used as the video source when available —
+            // canvas JS removes the green regardless of whether the browser decodes the alpha track
+            // (VP9 alpha is ignored by Chrome on file://, but works via HTTP/Netlify).
+            if let Some((kr, kg, kb, sim)) = get_chroma_key(&base.filters) {
+                // Canvas 2D with YCbCr distance — same algorithm as OBS chroma key.
+                // YCbCr separates chroma from luma: dark greens and bright greens
+                // have the same Cb/Cr, so they're both removed correctly.
+                // Works via HTTP same-origin (Netlify, localhost, OBS browser source).
+                let kr_f   = kr as f64 / 255.0;
+                let kg_f   = kg as f64 / 255.0;
+                let kb_f   = kb as f64 / 255.0;
+                // VP9 re-encoding drifts pure green (0,255,0) to ~(85,255,85), increasing
+                // CbCr distance to ~0.18. Enforce a minimum threshold of 0.25 so that
+                // VP9-compressed green artifacts are still removed even at low similarity.
+                let sim_t  = (sim / 1000.0).max(0.30);
+                let bld_v  = (sim_t * 0.3_f64).max(0.01);
                 let loop_js = if *looping { "true" } else { "false" };
                 return Some(format!(
                     concat!(
-                        "<!-- {name} (video + chroma key) -->\n",
-                        // Canvas hidden until video metadata loads (avoids flash of green)
+                        "<!-- {name} (video + canvas chroma key) -->\n",
                         "  <canvas id=\"{id}\" class=\"layer\" style=\"{style};display:none\"></canvas>\n",
                         "  <script>(function(){{\n",
-                        "    var c=document.getElementById('{id}'),ctx=c.getContext('2d');\n",
+                        "    var c=document.getElementById('{id}');\n",
+                        "    var ctx=c.getContext('2d');\n",
                         "    var v=document.createElement('video');\n",
-                        "    v.src='{src}';v.loop={loop};v.muted=true;v.playsInline=true;\n",
-                        "    var kr={kr},kg={kg},kb={kb},tSq={tol_sq},started=false;\n",
+                        "    v.loop={loop};v.muted=true;v.playsInline=true;\n",
+                        // CbCr of key color (pre-computed, normalized 0-1)
+                        "    var KCB={kr_f}*-0.100644+{kg_f}*-0.338572+{kb_f}*0.439216;\n",
+                        "    var KCR={kr_f}*0.439216+{kg_f}*-0.398942+{kb_f}*-0.040274;\n",
+                        "    var SIM={sim_t},BLD={bld_v};\n",
+                        "    var _drawn=0,_logged=false;\n",
                         "    function draw(){{\n",
-                        "      if(c.width>0&&c.height>0){{\n",
+                        "      if(v.readyState>=2){{\n",
                         "        ctx.drawImage(v,0,0);\n",
                         "        try{{\n",
-                        "          var d=ctx.getImageData(0,0,c.width,c.height),p=d.data;\n",
-                        "          for(var i=0;i<p.length;i+=4){{var dr=p[i]-kr,dg=p[i+1]-kg,db=p[i+2]-kb;if(dr*dr+dg*dg+db*db<tSq)p[i+3]=0;}}\n",
-                        "          ctx.putImageData(d,0,0);\n",
-                        "        }}catch(e){{}}\n",
+                        "          var img=ctx.getImageData(0,0,c.width,c.height);\n",
+                        "          var d=img.data;\n",
+                        "          if(!_logged){{_logged=true;console.log('[chroma {id}] getImageData OK — canvas origin-clean. pixel[0] RGB:',d[0],d[1],d[2],'alpha:',d[3]);}}\n",
+                        "          for(var i=0;i<d.length;i+=4){{\n",
+                        "            var r=d[i]/255,g=d[i+1]/255,b=d[i+2]/255;\n",
+                        "            var cb=r*-0.100644+g*-0.338572+b*0.439216;\n",
+                        "            var cr=r*0.439216+g*-0.398942+b*-0.040274;\n",
+                        "            var dcb=cb-KCB,dcr=cr-KCR;\n",
+                        "            var dist=Math.sqrt(dcb*dcb+dcr*dcr);\n",
+                        "            var a=Math.min(1,Math.max(0,(dist-SIM)/BLD));\n",
+                        "            d[i+3]=Math.round(a*d[i+3]);\n",
+                        "          }}\n",
+                        "          ctx.putImageData(img,0,0);\n",
+                        "          _drawn++;\n",
+                        "        }}catch(e){{if(_drawn===0){{console.error('[chroma {id}] getImageData BLOCKED — canvas tainted:',e.message);}}}}\n",
                         "      }}\n",
                         "      requestAnimationFrame(draw);\n",
                         "    }}\n",
                         "    v.addEventListener('loadedmetadata',function(){{\n",
                         "      c.width=v.videoWidth;c.height=v.videoHeight;c.style.display='';\n",
-                        "      if(!started){{started=true;requestAnimationFrame(draw);}}\n",
+                        "      console.log('[chroma {id}] video loaded — size:',v.videoWidth,'x',v.videoHeight,'src:',v.src.substring(0,60));\n",
+                        "      requestAnimationFrame(draw);\n",
                         "    }});\n",
-                        "    v.play().catch(function(){{}});\n",
+                        // fetch+blob: blob URLs are always origin-clean → getImageData never blocked.
+                        // Works for HTTP/HTTPS (Netlify, localhost). For file://, falls back to direct src.
+                        "    (function(){{\n",
+                        "      var src='{src}';\n",
+                        "      console.log('[chroma {id}] protocol:',location.protocol,'src:',src);\n",
+                        "      if(location.protocol!=='file:'){{\n",
+                        "        console.log('[chroma {id}] trying fetch+blob...');\n",
+                        "        fetch(src).then(function(r){{return r.blob();}}).then(function(b){{\n",
+                        "          var burl=URL.createObjectURL(b);\n",
+                        "          console.log('[chroma {id}] fetch+blob OK — blobURL:',burl.substring(0,40));\n",
+                        "          v.src=burl;v.play().catch(function(e){{console.warn('[chroma {id}] play() failed:',e);}});\n",
+                        "        }}).catch(function(e){{console.error('[chroma {id}] fetch FAILED, fallback to direct src:',e);v.src=src;v.play().catch(function(){{}});}});\n",
+                        "      }}else{{console.log('[chroma {id}] file:// — direct src (canvas will be tainted)');v.src=src;v.play().catch(function(){{}});}}\n",
+                        "    }})();\n",
                         "  }})();</script>",
                     ),
-                    name    = base.name,
-                    id      = base.id,
-                    style   = style,
-                    src     = src,
-                    loop    = loop_js,
-                    kr      = kr,
-                    kg      = kg,
-                    kb      = kb,
-                    tol_sq  = tol_sq,
+                    name  = base.name,
+                    id    = base.id,
+                    style = style,
+                    src   = src,
+                    loop  = loop_js,
+                    kr_f  = kr_f,
+                    kg_f  = kg_f,
+                    kb_f  = kb_f,
+                    sim_t = sim_t,
+                    bld_v = bld_v,
                 ));
             }
 
             // Normal video (no chroma key, or black key → screen blend)
-            let loop_attr  = if *looping { " loop" } else { "" };
-            let black_key  = base.filters.iter().any(|f| {
+            let ext       = file.rsplit('.').next().unwrap_or("").to_lowercase();
+            let mime      = if ext == "webm" { "video/webm" } else { "video/mp4" };
+            let black_key = base.filters.iter().any(|f| {
                 matches!(f.id.as_str(), "color_key_filter" | "color_key_filter_v2" |
                                         "chroma_key_filter" | "chroma_key_filter_v2")
             });
-            let blend_str  = if black_key { "; mix-blend-mode: screen" } else { "" };
+            let blend_str = if black_key { "; mix-blend-mode: screen" } else { "" };
             Some(format!(
                 "<!-- {} (video) -->\n  <video id=\"{}\" class=\"layer\" autoplay{} muted playsinline style=\"{}{}{}\">\n    <source src=\"{}\" type=\"{}\">\n  </video>",
                 base.name, base.id, loop_attr, style, filter_str, blend_str, src, mime
@@ -411,45 +456,6 @@ fn resolve_asset(file: &str, asset_map: &HashMap<String, Option<String>>) -> Str
     }
     // Fallback: original path with forward slashes (useful for local testing)
     file.replace('\\', "/")
-}
-
-/// Returns (R, G, B, tolerance²) for the key color if a chroma/color key filter is present.
-/// OBS similarity 1-1000 → we map to Euclidean tolerance ≈ similarity/2,
-/// then store tolerance² to avoid sqrt in the JS hot loop.
-fn get_chroma_key(filters: &[Filter]) -> Option<(u32, u32, u32, u32)> {
-    for f in filters {
-        let s = &f.settings;
-        let sim = s["similarity"].as_f64().unwrap_or(80.0).clamp(1.0, 1000.0);
-        let tol = (sim / 2.0) as u32;
-
-        match f.id.as_str() {
-            "chroma_key_filter" | "chroma_key_filter_v2" => {
-                let (r, g, b) = match s["key_color_type"].as_str().unwrap_or("green") {
-                    "blue"    => (0u32, 0u32, 255u32),
-                    "magenta" => (255u32, 0u32, 255u32),
-                    "custom"  => {
-                        let c = s["custom_color"].as_i64().unwrap_or(0) as u32;
-                        (c & 0xFF, (c >> 8) & 0xFF, (c >> 16) & 0xFF)
-                    }
-                    _ => (0u32, 255u32, 0u32), // green
-                };
-                return Some((r, g, b, tol * tol));
-            }
-            "color_key_filter" | "color_key_filter_v2" => {
-                let c = s["color"].as_i64().unwrap_or(0) as u32;
-                let r = c & 0xFF;
-                let g = (c >> 8) & 0xFF;
-                let b = (c >> 16) & 0xFF;
-                // Black key → mix-blend-mode: screen is good enough; skip canvas
-                if r < 10 && g < 10 && b < 10 {
-                    return None;
-                }
-                return Some((r, g, b, tol * tol));
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 fn build_css_filters(filters: &[Filter]) -> String {
