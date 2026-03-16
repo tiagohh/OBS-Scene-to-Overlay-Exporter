@@ -11,8 +11,9 @@ A desktop app that converts your OBS Studio scene collection into a self-contain
 1. Reads your OBS scene collection `.json` file
 2. Lets you pick which scene to export
 3. Copies all local assets (videos, images, GIFs) to an `assets/` folder
-4. Downloads Google Font equivalents for Windows system fonts (self-hosted WOFF2)
-5. Generates a pixel-accurate `index.html` that replicates your OBS scene layout
+4. Converts chroma key videos to WebM VP9 with alpha channel (requires ffmpeg)
+5. Downloads Google Font equivalents for Windows system fonts (self-hosted WOFF2)
+6. Generates a pixel-accurate `index.html` that replicates your OBS scene layout
 
 The output folder can be uploaded to **Netlify, Vercel, GitHub Pages**, or any static host — then used as a browser source URL in cloud OBS services.
 
@@ -40,6 +41,18 @@ The output folder can be uploaded to **Netlify, Vercel, GitHub Pages**, or any s
 6. Upload the generated `cenas/{scene-name}/` folder to your static host
 7. Use the hosted URL as a Browser Source in your cloud OBS
 
+## ffmpeg (optional, recommended)
+
+ffmpeg enables automatic conversion of chroma key videos to WebM VP9 with alpha channel, which produces a cleaner result.
+
+**Install steps (Windows):**
+1. Download **ffmpeg essentials build** from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) → `ffmpeg-release-essentials.zip`
+2. Extract to `C:\ffmpeg\`
+3. Add to PATH: open **System Properties → Advanced → Environment Variables**, edit **Path** under System Variables, add `C:\ffmpeg\<build-name>\bin`
+4. Verify: open a new terminal and run `ffmpeg -version`
+
+Without ffmpeg, videos with chroma key are copied as-is and the canvas JS still removes the green background via HTTP.
+
 ## Building from source
 
 ```bash
@@ -52,7 +65,7 @@ cargo build --release
 
 ## Known limitations
 
-- Chroma key on videos works via canvas JS — requires serving over HTTP (not `file://`) for cross-origin video sources; a green background is expected when previewing locally via `file://`
+- Chroma key on videos requires serving over HTTP (not `file://`) — a green tint is expected when opening the HTML directly from disk
 - Windows system fonts (e.g. OCR A Extended) are used directly if available on the machine opening the HTML; Google Fonts equivalents are downloaded as fallback for remote servers
 - Some complex OBS filter effects are not yet supported
 

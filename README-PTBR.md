@@ -11,8 +11,9 @@ App desktop que converte suas cenas do OBS Studio em overlays HTML auto-contidos
 1. Lê o arquivo `.json` da sua coleção de cenas do OBS
 2. Permite escolher qual cena exportar
 3. Copia todos os arquivos locais (vídeos, imagens, GIFs) para uma pasta `assets/`
-4. Baixa equivalentes do Google Fonts para fontes do sistema Windows (WOFF2 auto-hospedado)
-5. Gera um `index.html` que replica o layout da sua cena OBS com precisão de pixels
+4. Converte vídeos com chroma key para WebM VP9 com canal alpha (requer ffmpeg)
+5. Baixa equivalentes do Google Fonts para fontes do sistema Windows (WOFF2 auto-hospedado)
+6. Gera um `index.html` que replica o layout da sua cena OBS com precisão de pixels
 
 A pasta gerada pode ser enviada para **Netlify, Vercel, GitHub Pages** ou qualquer host estático — e então usada como URL de browser source em serviços de OBS na nuvem.
 
@@ -40,6 +41,18 @@ A pasta gerada pode ser enviada para **Netlify, Vercel, GitHub Pages** ou qualqu
 6. Envie a pasta gerada `cenas/{nome-da-cena}/` para seu host estático
 7. Use a URL hospedada como Browser Source no seu OBS na nuvem
 
+## ffmpeg (opcional, recomendado)
+
+O ffmpeg permite a conversão automática de vídeos com chroma key para WebM VP9 com canal alpha, gerando um resultado mais limpo.
+
+**Instalação (Windows):**
+1. Baixe o **ffmpeg essentials build** em [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) → `ffmpeg-release-essentials.zip`
+2. Extraia em `C:\ffmpeg\`
+3. Adicione ao PATH: abra **Propriedades do Sistema → Avançado → Variáveis de Ambiente**, edite **Path** em Variáveis do Sistema, adicione `C:\ffmpeg\<nome-da-pasta>\bin`
+4. Verifique: abra um novo terminal e execute `ffmpeg -version`
+
+Sem o ffmpeg, vídeos com chroma key são copiados normalmente e o canvas JS ainda remove o fundo verde via HTTP.
+
 ## Compilar do código fonte
 
 ```bash
@@ -52,7 +65,7 @@ cargo build --release
 
 ## Limitações conhecidas
 
-- O chroma key em vídeos funciona via canvas JS — requer servir o HTML via HTTP (não `file://`) para fontes de vídeo cross-origin; fundo verde é esperado ao abrir localmente via `file://`
+- O chroma key em vídeos requer servir via HTTP (não `file://`) — um fundo esverdeado é esperado ao abrir o HTML diretamente do disco
 - Fontes do sistema Windows (ex: OCR A Extended) são usadas diretamente se disponíveis na máquina que abrir o HTML; equivalentes do Google Fonts são baixados como fallback para servidores remotos
 - Alguns efeitos complexos de filtros do OBS ainda não são suportados
 
