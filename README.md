@@ -66,6 +66,7 @@ cargo build --release
 
 - Chroma key on videos requires serving over HTTP (not `file://`) — a green tint is expected when opening the HTML directly from disk
 - Windows system fonts (e.g. OCR A Extended) are used directly if available on the machine opening the HTML; Google Fonts equivalents are downloaded as fallback for remote servers
+- Browser sources (Streamlabs Chat Box, StreamElements alerts, etc.) are embedded as `<iframe>` and depend entirely on those external services being online and allowing embedding. Font loading errors or visual glitches from these widgets are caused by the external service, not by this tool
 - Some complex OBS filter effects are not yet supported
 
 ## License

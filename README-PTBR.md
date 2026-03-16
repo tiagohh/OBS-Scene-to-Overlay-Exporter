@@ -66,6 +66,7 @@ cargo build --release
 
 - O chroma key em vídeos requer servir via HTTP (não `file://`) — um fundo esverdeado é esperado ao abrir o HTML diretamente do disco
 - Fontes do sistema Windows (ex: OCR A Extended) são usadas diretamente se disponíveis na máquina que abrir o HTML; equivalentes do Google Fonts são baixados como fallback para servidores remotos
+- Browser sources (Chat Box do Streamlabs, alertas do StreamElements, etc.) são incorporados como `<iframe>` e dependem totalmente desses serviços externos estarem online e permitindo incorporação. Erros de carregamento de fontes ou falhas visuais nesses widgets são causados pelo serviço externo, não por esta ferramenta
 - Alguns efeitos complexos de filtros do OBS ainda não são suportados
 
 ## Licença
