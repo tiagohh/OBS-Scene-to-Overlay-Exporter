@@ -56,9 +56,8 @@ Without ffmpeg, videos with chroma key are copied as-is and the canvas JS still 
 ## Building from source
 
 ```bash
-cd src
 cargo build --release
-# output: src/target/release/obs-overlay-exporter.exe
+# output: target/release/obs-overlay-exporter.exe
 ```
 
 **Requirements:** Rust toolchain (https://rustup.rs)

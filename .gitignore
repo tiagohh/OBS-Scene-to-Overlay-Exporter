@@ -1,5 +1,5 @@
 # ── Rust build output ─────────────────────────────────────────────────────────
-src/target/
+target/
 
 # ── Generated overlay exports (contain user's personal media files) ───────────
 # These are runtime outputs, not source code. Never commit.

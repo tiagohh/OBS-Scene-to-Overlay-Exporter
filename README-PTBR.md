@@ -56,9 +56,8 @@ Sem o ffmpeg, vídeos com chroma key são copiados normalmente e o canvas JS ain
 ## Compilar do código fonte
 
 ```bash
-cd src
 cargo build --release
-# output: src/target/release/obs-overlay-exporter.exe
+# output: target/release/obs-overlay-exporter.exe
 ```
 
 **Requisito:** Rust toolchain (https://rustup.rs)
