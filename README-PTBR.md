@@ -4,7 +4,7 @@
 
 # OBS Scene to Overlay Exporter
 
-App desktop que converte suas cenas do OBS Studio em overlays HTML auto-contidos — prontos para hospedar em qualquer servidor estático e usar como browser source em serviços de OBS na nuvem (ex: Antiscuff).
+App desktop que converte suas cenas do OBS Studio em overlays HTML auto-contidos — prontos para hospedar em qualquer servidor estático e usar como browser source em serviços de OBS na nuvem.
 
 ## O que faz
 
