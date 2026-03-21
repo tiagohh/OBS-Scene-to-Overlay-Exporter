@@ -27,9 +27,9 @@ where
     let ffmpeg_ok      = find_ffmpeg();
     if !chroma_videos.is_empty() {
         if ffmpeg_ok {
-            log("✓ ffmpeg encontrado — vídeos com chroma key serão convertidos para WebM alpha".to_string());
+            log("✓ ffmpeg found — chroma key videos will be converted to WebM alpha".to_string());
         } else {
-            log("⚠ ffmpeg não encontrado — chroma key usará canvas JS como fallback. Instale ffmpeg e adicione ao PATH para converter automaticamente.".to_string());
+            log("⚠ ffmpeg not found — chroma key will use canvas JS fallback. Install ffmpeg and add it to PATH for automatic conversion.".to_string());
         }
     }
 
@@ -39,7 +39,7 @@ where
         let path = Path::new(file_path);
 
         if !path.exists() {
-            log(format!("✗ Não encontrado: {}", file_path));
+            log(format!("✗ Not found: {}", file_path));
             asset_map.insert(file_path.clone(), None);
             continue;
         }
@@ -53,7 +53,7 @@ where
         let dest_dir = PathBuf::from(output_dir).join("assets").join(sub_dir);
 
         if let Err(e) = std::fs::create_dir_all(&dest_dir) {
-            log(format!("✗ Erro ao criar pasta: {}", e));
+            log(format!("✗ Error creating folder: {}", e));
             asset_map.insert(file_path.clone(), None);
             continue;
         }
@@ -71,16 +71,16 @@ where
                 let stem     = path.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
                 let webm_name = format!("{}_alpha.webm", stem);
                 let webm_dest = dest_dir.join(&webm_name);
-                log(format!("⚙ Convertendo chroma key: {} → {} …", filename, webm_name));
+                log(format!("⚙ Converting chroma key: {} → {} …", filename, webm_name));
                 match convert_chroma_to_webm(path, &webm_dest, kr, kg, kb, sim) {
                     Ok(()) => {
                         let web_path = format!("assets/{}/{}", sub_dir, webm_name);
-                        log(format!("✓ Convertido: {}", webm_name));
+                        log(format!("✓ Converted: {}", webm_name));
                         asset_map.insert(file_path.clone(), Some(web_path));
                         continue;
                     }
                     Err(e) => {
-                        log(format!("⚠ ffmpeg falhou ({}), copiando original", e));
+                        log(format!("⚠ ffmpeg failed ({}), copying original", e));
                     }
                 }
             }
@@ -89,11 +89,11 @@ where
         match std::fs::copy(path, &dest_path) {
             Ok(_) => {
                 let web_path = format!("assets/{}/{}", sub_dir, filename);
-                log(format!("✓ Copiado: {}", filename));
+                log(format!("✓ Copied: {}", filename));
                 asset_map.insert(file_path.clone(), Some(web_path));
             }
             Err(e) => {
-                log(format!("✗ Erro ao copiar {}: {}", filename, e));
+                log(format!("✗ Error copying {}: {}", filename, e));
                 asset_map.insert(file_path.clone(), None);
             }
         }
@@ -108,14 +108,14 @@ where
         let _ = std::fs::create_dir_all(&fonts_dir);
 
         for (face, google_font) in &google_fonts {
-            log(format!("↓ Baixando fonte: {} …", google_font));
+            log(format!("↓ Downloading font: {} …", google_font));
             match download_font(google_font, &fonts_dir).await {
                 Ok(css) => {
-                    log(format!("✓ Fonte baixada: {}", face));
+                    log(format!("✓ Font downloaded: {}", face));
                     font_css_blocks.push(css);
                 }
                 Err(e) => {
-                    log(format!("⚠ Falha ao baixar fonte ({}) — usando CDN fallback", e));
+                    log(format!("⚠ Failed to download font ({}) — using CDN fallback", e));
                     font_css_blocks.push(format!(
                         "@import url('https://fonts.googleapis.com/css2?family={}&display=swap');",
                         google_font

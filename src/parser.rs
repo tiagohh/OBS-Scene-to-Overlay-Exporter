@@ -306,7 +306,7 @@ fn parse_item(
                 bk_color:      s["bk_color"].as_i64(),
                 bk_opacity:    s["bk_opacity"].as_f64().unwrap_or(0.0),
                 outline:       s["outline"].as_bool().unwrap_or(false),
-                outline_size:  s["outline_size"].as_i64().unwrap_or(3),
+                outline_size:  s["outline_size"].as_i64().unwrap_or(2),
                 outline_color: s["outline_color"].as_i64(),
                 text_align:    s["align"].as_str().unwrap_or("left").to_string(),
                 drop_shadow:   s["drop_shadow"].as_bool().unwrap_or(false),

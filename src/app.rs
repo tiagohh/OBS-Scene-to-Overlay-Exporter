@@ -87,12 +87,12 @@ impl eframe::App for App {
             ui.heading("OBS Overlay Exporter");
             ui.add_space(10.0);
 
-            // ── 1. Arquivo ───────────────────────────────────────────────────
-            ui.label("1. Arquivo de cenas exportado do OBS:");
+            // ── 1. File ──────────────────────────────────────────────────────
+            ui.label("1. OBS scene collection file:");
             ui.horizontal(|ui| {
                 let w = ui.available_width() - 75.0;
                 ui.add(egui::TextEdit::singleline(&mut self.json_path).desired_width(w));
-                if ui.button("Abrir…").clicked() {
+                if ui.button("Open…").clicked() {
                     if let Some(p) = rfd::FileDialog::new()
                         .add_filter("OBS Scene Collection", &["json"])
                         .pick_file()
@@ -102,12 +102,12 @@ impl eframe::App for App {
                     }
                 }
             });
-            ui.small("Ou arraste o arquivo .json para a janela");
+            ui.small("Or drag the .json file onto the window");
             ui.add_space(14.0);
 
-            // ── 2. Lista de cenas ────────────────────────────────────────────
+            // ── 2. Scene list ─────────────────────────────────────────────────
             if !self.scenes.is_empty() {
-                ui.label("2. Selecionar cena:");
+                ui.label("2. Select scene:");
                 ui.group(|ui| {
                     egui::ScrollArea::vertical()
                         .id_salt("scenes")
@@ -132,17 +132,17 @@ impl eframe::App for App {
                 // ── Checkbox ─────────────────────────────────────────────────
                 ui.checkbox(
                     &mut self.only_visible,
-                    "Apenas itens visíveis no OBS (recomendado)",
+                    "Visible items only (recommended)",
                 );
                 ui.add_space(12.0);
 
-                // ── Exportar ─────────────────────────────────────────────────
+                // ── Export ───────────────────────────────────────────────────
                 let can_export = self.selected.is_some() && !self.exporting;
                 if ui
                     .add_enabled(
                         can_export,
                         egui::Button::new(
-                            egui::RichText::new("  Exportar Overlay  ").size(16.0),
+                            egui::RichText::new("  Export Overlay  ").size(16.0),
                         ),
                     )
                     .clicked()
@@ -191,11 +191,11 @@ impl App {
 
         match std::fs::read_to_string(&self.json_path) {
             Err(e) => {
-                self.log.push(format!("✗ Não foi possível abrir o arquivo: {}", e));
+                self.log.push(format!("✗ Could not open file: {}", e));
             }
             Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
                 Err(e) => {
-                    self.log.push(format!("✗ JSON inválido: {}", e));
+                    self.log.push(format!("✗ Invalid JSON: {}", e));
                 }
                 Ok(json) => {
                     let scenes: Vec<String> = json["sources"]
@@ -207,7 +207,7 @@ impl App {
                         .collect();
 
                     if scenes.is_empty() {
-                        self.log.push("⚠ Nenhuma cena encontrada no arquivo.".to_string());
+                        self.log.push("⚠ No scenes found in file.".to_string());
                     } else {
                         self.json_content = Some(content);
                         self.scenes       = scenes;
@@ -226,7 +226,7 @@ impl App {
 
         let json: serde_json::Value = match serde_json::from_str(&json_content) {
             Ok(j)  => j,
-            Err(e) => { self.log.push(format!("✗ JSON inválido: {}", e)); return; }
+            Err(e) => { self.log.push(format!("✗ Invalid JSON: {}", e)); return; }
         };
 
         // Parse ALL items (only_visible=false) so we see hidden ones too
@@ -235,7 +235,7 @@ impl App {
             Err(e) => { self.log.push(format!("✗ {}", e)); return; }
         };
 
-        self.log.push(format!("── Cena: {} ──────────────────────────", scene_name));
+        self.log.push(format!("── Scene: {} ──────────────────────────", scene_name));
         self.log.push(format!("   Canvas: {}×{}", scene_data.canvas.x, scene_data.canvas.y));
         self.log.push(String::new());
         self.log_items(&scene_data.items, 0);
@@ -316,8 +316,8 @@ impl App {
         let output_dir = project_root.join("cenas").join(&scene_name);
 
         self.log.clear();
-        self.log.push(format!("→ Exportando cena: {}", scene_name));
-        self.log.push(format!("  Destino: {}", output_dir.display()));
+        self.log.push(format!("→ Exporting scene: {}", scene_name));
+        self.log.push(format!("  Output: {}", output_dir.display()));
         self.exporting   = true;
         self.output_path = None;
 
@@ -335,7 +335,7 @@ impl App {
                 let json: serde_json::Value = match serde_json::from_str(&json_content) {
                     Ok(j)  => j,
                     Err(e) => {
-                        send_log(format!("✗ JSON inválido: {}", e));
+                        send_log(format!("✗ Invalid JSON: {}", e));
                         let _ = tx.send(Msg::Done { output_dir: out });
                         return;
                     }
@@ -351,18 +351,18 @@ impl App {
                     }
                 };
 
-                send_log(format!("✓ {} itens encontrados", scene_data.items.len()));
+                send_log(format!("✓ {} items found", scene_data.items.len()));
 
                 // Wipe output dir if it exists, then recreate fresh
                 if out.exists() {
                     if let Err(e) = std::fs::remove_dir_all(&out) {
-                        send_log(format!("✗ Erro ao limpar pasta antiga: {}", e));
+                        send_log(format!("✗ Error clearing old folder: {}", e));
                         let _ = tx.send(Msg::Done { output_dir: out });
                         return;
                     }
                 }
                 if let Err(e) = std::fs::create_dir_all(&out) {
-                    send_log(format!("✗ Erro ao criar pasta: {}", e));
+                    send_log(format!("✗ Error creating folder: {}", e));
                     let _ = tx.send(Msg::Done { output_dir: out });
                     return;
                 }
@@ -384,17 +384,17 @@ impl App {
                     &asset_result.font_css,
                 );
                 match std::fs::write(out.join("index.html"), html.as_bytes()) {
-                    Ok(_)  => send_log("✓ index.html gerado".to_string()),
-                    Err(e) => send_log(format!("✗ Erro ao escrever index.html: {}", e)),
+                    Ok(_)  => send_log("✓ index.html generated".to_string()),
+                    Err(e) => send_log(format!("✗ Error writing index.html: {}", e)),
                 }
 
                 let copied  = asset_result.asset_map.values().filter(|v| v.is_some()).count();
                 let missing = asset_result.asset_map.values().filter(|v| v.is_none()).count();
                 send_log(format!(
-                    "✓ Pronto! {} asset(s) copiado(s){}.",
+                    "✓ Done! {} asset(s) copied{}.",
                     copied,
                     if missing > 0 {
-                        format!(", {} não encontrado(s)", missing)
+                        format!(", {} not found", missing)
                     } else {
                         String::new()
                     }

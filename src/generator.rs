@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use crate::parser::{Canvas, Filter, SceneData, SceneItem};
-use crate::utils::{build_outline_shadow, get_chroma_key, get_web_font, obs_color_to_css};
+use crate::utils::{get_chroma_key, get_web_font, obs_color_to_css};
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -290,7 +290,35 @@ fn render_item(
             outline, outline_size, outline_color, drop_shadow,
             text_align, custom_width, ..
         } => {
-            let style = build_transform_style(base);
+            // For text we avoid CSS scale() and instead bake the scale into font-size.
+            // This prevents the "large font + large stroke scaled down" artifact where
+            // text-stroke rendering at pre-scale size looks chunkier than OBS GDI+.
+            let scale_x = base.scale.x.abs().max(0.01);
+            let scale_y = base.scale.y.abs().max(0.01);
+            let visual_font_px = *font_size * scale_x;
+
+            // Build position style without scale() transform.
+            // Alignment translate and rotation are still handled.
+            let h_align = base.item_align & 0b0011;
+            let v_align = base.item_align & 0b1100;
+            let tx = match h_align { 1 => "0%", 2 => "-100%", _ => "-50%" };
+            let ty = match v_align { 4 => "0%", 8 => "-100%", _ => "-50%" };
+            let mut transforms: Vec<String> = Vec::new();
+            if tx != "0%" || ty != "0%" {
+                transforms.push(format!("translate({}, {})", tx, ty));
+            }
+            // Non-uniform scale: express as scaleY ratio (scale_x already in font-size)
+            if (scale_x - scale_y).abs() > 0.01 {
+                transforms.push(format!("scaleY({:.4})", scale_y / scale_x));
+            }
+            if base.rot.abs() > 0.001 {
+                transforms.push(format!("rotate({:.2}deg)", base.rot));
+            }
+            let style = if transforms.is_empty() {
+                format!("left: {}px; top: {}px", base.pos.x, base.pos.y)
+            } else {
+                format!("left: {}px; top: {}px; transform: {}", base.pos.x, base.pos.y, transforms.join(" "))
+            };
 
             // Local Windows font first — if the HTML is opened on the same machine
             // as OBS, the original font is used. Google Font is fallback for servers.
@@ -312,36 +340,38 @@ fn render_item(
                 "transparent".to_string()
             };
 
-            let mut shadows: Vec<String> = Vec::new();
-            if *outline && *outline_size > 0 {
-                // OBS outline_size is in canvas-space pixels (post-scale).
-                // Divide by item scale so the CSS shadow produces the correct
-                // visual size after transform: scale() is applied.
-                let scale = base.scale.x.abs().max(0.01);
-                let css_outline_px = *outline_size as f64 / scale;
-                shadows.push(build_outline_shadow(css_outline_px, *outline_color));
-            }
-            if *drop_shadow {
-                shadows.push("3px 3px 6px rgba(0,0,0,0.85)".to_string());
-            }
-            let text_shadow = if shadows.is_empty() { "none".to_string() } else { shadows.join(", ") };
+            // OBS outline → -webkit-text-stroke + paint-order: stroke fill.
+            // Since we render at visual font size (no CSS scale()), the stroke is applied
+            // at the final display size: outline_size * 2 (paint-order hides inner half).
+            let outline_css = if *outline && *outline_size > 0 {
+                let css_stroke_px = *outline_size as f64 * 2.0;
+                let color_css = obs_color_to_css(*outline_color, 100.0);
+                format!("; -webkit-text-stroke: {:.2}px {}; paint-order: stroke fill", css_stroke_px, color_css)
+            } else {
+                String::new()
+            };
 
+            let text_shadow = if *drop_shadow {
+                "3px 3px 6px rgba(0,0,0,0.85)".to_string()
+            } else {
+                "none".to_string()
+            };
+
+            // custom_width in OBS is in the source's local space; scale to visual pixels.
             let width_css = if *custom_width > 0 {
-                format!("; width: {}px; word-wrap: break-word", custom_width)
+                let visual_width = *custom_width as f64 * scale_x;
+                format!("; width: {:.0}px; word-wrap: break-word", visual_width)
             } else {
                 "; white-space: pre-line".to_string()
             };
 
-            // padding only when background is visible; line-height 1 matches OBS
-            let padding = if *bk_opacity > 0.0 { "; padding: 2px 6px" } else { "" };
-
             let full_style = format!(
-                "{}; font-family: {}; font-size: {}px; font-weight: {}; font-style: {}; \
+                "{}; font-family: {}; font-size: {:.1}px; font-weight: {}; font-style: {}; \
                  color: {}; background: {}; text-shadow: {}; text-align: {}; \
                  line-height: 1{}{}",
                 style,
                 font_family,
-                font_size,
+                visual_font_px,
                 if *font_bold   { "bold"   } else { "normal" },
                 if *font_italic { "italic" } else { "normal" },
                 text_color,
@@ -349,7 +379,7 @@ fn render_item(
                 text_shadow,
                 text_align,
                 width_css,
-                padding,
+                outline_css,
             );
 
             let escaped = text
